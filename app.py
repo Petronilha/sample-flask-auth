@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify
 from models.user import User
 from database import db
 from flask_login import LoginManager, login_user, current_user, logout_user, login_required
+import bcrypt
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = "your_secret_key"
-app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///database.db"
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:admin123@127.0.0.1:3306/flask-crud'
 
 login_manager = LoginManager()
 db.init_app(app)
@@ -19,6 +20,7 @@ login_manager.login_view = 'login'
 def load_user(user_id):
   return User.query.get(user_id)
 
+# Login system
 @app.route("/login", methods=["POST"])
 def login():
   data = request.json
@@ -29,7 +31,7 @@ def login():
     #login
     user = User.query.filter_by(username=username).first()
 
-    if user and user.password == password:
+    if user and bcrypt.checkpw(str.encode(password), str.encode(user.password)):
       login_user(user)
       print(current_user.is_authenticated)
       return jsonify({"message": "Autenticacao realizada com sucesso"})
@@ -37,28 +39,30 @@ def login():
   
   return jsonify({"message": "Credenciais invalidas"}), 400
 
-
+# Logout system
 @app.route("/logout", methods=["GET"])
 @login_required
 def logout():
   logout_user()
   return jsonify({"message": "Logout realizado com sucesso!"})
 
+#Create user
 @app.route("/user", methods=["POST"])
-@login_required
 def create_user():
   data = request.json
   username = data.get("username")
   password = data.get("password")
   
   if username and password:
-    user = User(username=username, password=password)
+    hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())
+    user = User(username=username, password=hashed_password, role='user')
     db.session.add(user)
     db.session.commit()
     return jsonify({"message": "Usuario cadastrado com sucesso"})
   
   return jsonify({"message": "Dados invalidos"}), 400
 
+# Read user by id
 @app.route("/user/<int:id_user>", methods=["GET"])
 @login_required
 def read_user(id_user):
@@ -70,11 +74,15 @@ def read_user(id_user):
 
   return jsonify({"message": "Usuario nao encontrado"}), 404
 
+# Update user by id
 @app.route("/user/<int:id_user>", methods=["PUT"])
 @login_required
 def update_user(id_user):
   data = request.json
   user = User.query.get(id_user)
+  
+  if id_user != current_user.id and current_user.role == "user":
+    return jsonify({"message": "Operacao nao permitida"}), 403
   
   if user and data.get("password"):
     user.password = data.get("password")
@@ -84,10 +92,15 @@ def update_user(id_user):
 
   return jsonify({"message": "Usuario nao encontrado"}), 404
 
+# Delete user by id
 @app.route("/user/<int:id_user>", methods=["DELETE"])
 @login_required
 def delete_user(id_user):
   user = User.query.get(id_user)
+  
+  if current_user.role != 'admin':
+    return jsonify({"message": "Operacao nao permitida"}), 403
+  
   if id_user == current_user.id:
     return jsonify({"message": "Delecao nao permitida"}), 403
 
